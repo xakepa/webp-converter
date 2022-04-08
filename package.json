@@ -1,6 +1,11 @@
 {
+  "name": "webp-converter",
   "dependencies": {
     "imagemin": "^8.0.1",
-    "imagemin-webp": "^7.0.0"
+    "imagemin-webp": "^7.0.0",
+    "yargs": "^17.4.0"
+  },
+  "scripts": {
+    "start": "node app.mjs"
   }
 }

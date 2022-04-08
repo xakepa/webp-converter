@@ -1,11 +1,14 @@
 dist/
 node_modules
 vendor
+input/
+output/
 
 .bak
 .swp
 .css
 .map
 
+*.bak
 *.css
 *.css.map
