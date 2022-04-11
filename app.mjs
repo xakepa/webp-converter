@@ -147,7 +147,6 @@ const convertByDirectory = function(dirInput, dirOutput, folders) {
 
   input.forEach(async function(file) {
     const source = dirInput + subfolder + path.sep + file
-    
 
     if (fs.statSync(source).isDirectory()) {
       const dest = dirOutput + subfolder + path.sep + file
