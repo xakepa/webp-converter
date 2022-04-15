@@ -1,8 +1,12 @@
 dist/
 node_modules
 vendor
-input/
-output/
+
+input/*
+!input/.gitkeep
+
+output/*
+!output/.gitkeep
 
 .bak
 .swp
