@@ -145,11 +145,13 @@ const convertByDirectory = function(dirInput, dirOutput, folders) {
   const subfolder = folders?.length > 0 ? (path.sep + folders.join(path.sep)) : ''
   const input = fs.readdirSync(path.normalize(dirInput + subfolder))
 
+
+
   input.forEach(async function(file) {
-    const source = dirInput + subfolder + path.sep + file
+    const source = path.normalize(dirInput + subfolder)
 
     if (fs.statSync(source).isDirectory()) {
-      const dest = dirOutput + subfolder + path.sep + file
+      const dest = dirOutput + subfolder
 
       try {
         await convert(source, dest, quality, chunks)
