@@ -1,14 +1,18 @@
-import imagemin from 'imagemin'
-import imageminWebp from 'imagemin-webp'
-import path from 'path'
-import fs from 'fs'
-import yargs from 'yargs'
-import { hideBin } from 'yargs/helpers'
-import glob from 'glob'
+import path from 'path';
+import fs from 'fs';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+import glob from 'glob';
+import imagemin from 'imagemin';
+import imageminWebp from 'imagemin-webp';
+import { pipeline } from 'stream';
+import { promisify } from 'util';
 
-let dirInput = path.resolve(process.cwd()) + path.sep + 'input'
-let dirOutput =  path.resolve(process.cwd()) + path.sep + 'output'
-let quality = 100
+const pipelineAsync = promisify(pipeline);
+
+let dirInput = path.resolve(process.cwd()) + path.sep + 'input';
+let dirOutput = path.resolve(process.cwd()) + path.sep + 'output';
+let quality = 100;
 let chunks = false;
 
 const argv = yargs(hideBin(process.argv))
@@ -34,138 +38,113 @@ const argv = yargs(hideBin(process.argv))
   })
   .help()
   .alias('help', 'h')
-  .argv
+  .argv;
 
 if (argv.input) {
   if (fs.existsSync(argv.input) && fs.lstatSync(argv.input).isDirectory()) {
-    dirInput = argv.input
+    dirInput = argv.input;
   } else {
-    console.error("Input path is Invalid!")
-    process.exit(-1)
+    console.error("Input path is Invalid!");
+    process.exit(-1);
   }
 }
 
 if (argv.output) {
   if (fs.existsSync(argv.output) && fs.lstatSync(argv.output).isDirectory()) {
-    dirOutput = argv.output
+    dirOutput = argv.output;
   } else {
-    console.error("Output path is Invalid!")
-    process.exit(-1)
+    console.error("Output path is Invalid!");
+    process.exit(-1);
   }
 }
 
 if (argv.quality) {
   if (argv.quality >= 0 && argv.quality <= 100) {
-    quality = Number(argv.quality)
+    quality = Number(argv.quality);
   } else {
-    console.error("Quality must be between 0 and 100!")
-    process.exit(-1)
+    console.error("Quality must be between 0 and 100!");
+    process.exit(-1);
   }
 }
 
 if (argv.chunks) {
   if (argv.chunks >= 1) {
-    chunks = Number(argv.chunks)
+    chunks = Number(argv.chunks);
   } else {
-    console.error("Chunks must be greater than 1!")
-    process.exit(-1)
+    console.error("Chunks must be greater than 1!");
+    process.exit(-1);
   }
 }
 
 const sliceIntoChunks = function(arr, chunkSize) {
-  const res = []
+  const res = [];
   for (let i = 0; i < arr.length; i += chunkSize) {
-      const chunk = arr.slice(i, i + chunkSize)
-      res.push(chunk)
+      const chunk = arr.slice(i, i + chunkSize);
+      res.push(chunk);
   }
-  return res
-}
+  return res;
+};
 
-const convert = function(input, output, quality, formats, chunks) {
-  input = input || './input'
-  output = output || './output'
-  formats = formats || ['jpg', 'jpeg', 'png', 'tiff', 'tif']
-  quality = quality || 100
-  chunks = chunks || false
-
-  const chunkConvert = function(files, output, quality) {
-    return new Promise((chunkSuccess, fail) => {
-      imagemin(files, {
-        destination: output,
-        plugins: [
-          imageminWebp({
-            quality
-          })
-        ],
-      })
-      .then((result) => {
-        if (result?.length > 0) {
-          console.log(` => Converted ${result?.length} files`)
-        } else {
-          console.log(` => No files are converted`)
-        }
-        console.log("---------------------------------\n")
-
-        chunkSuccess(result)
-      })
-      .catch((e) => chunkSuccess([]))
+const chunkConvert = function(files, output, quality) {
+  return new Promise((chunkSuccess, fail) => {
+    console.log(`Converting chunk with ${files.length} files...`);
+    imagemin(files, {
+      destination: output,
+      plugins: [
+        imageminWebp({
+          quality
+        })
+      ],
     })
-  }
+    .then((result) => {
+      if (result?.length > 0) {
+        console.log(` => Converted ${result?.length} files`)
+      } else {
+        console.log(` => No files are converted`)
+      }
+      console.log("---------------------------------\n")
 
-  return new Promise((success, fail) => {
-    console.log(input, "\n")
+      chunkSuccess(result);
+    })
+    .catch((e) => {
+      console.error("Error during conversion:", e);
+      chunkSuccess([]);
+    });
+  });
+};
 
-    const findFilter = `${input}/*.{${formats.join(',')}}`
+const convertFile = async (inputFile, outputFile, quality) => {
+  const transformer = imageminWebp({ quality }).default();
+  
+  await pipelineAsync(
+    fs.createReadStream(inputFile),
+    transformer,
+    fs.createWriteStream(outputFile)
+  );
+};
+
+const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
+  const findFilter = `${inputDir}/*.{jpg,jpeg,png}`;
+  glob(findFilter, {}, async (err, files) => {
+    if (err) {
+      console.error("Error reading files:", err);
+      return;
+    }
 
     if (chunks && chunks > 0) {
-      glob(findFilter, {}, async function (er, files) {
-
-        const filesChunk = sliceIntoChunks(files, chunks)
-        const count = filesChunk.length - 1
-
-        for (let i = 0; i <= count; i++) {
-          try {
-            let result = await chunkConvert(filesChunk[i], output, quality)
-            success(result)
-          } catch (e) {
-            success([])
-          }
-        }
-      })
-    } else {
-      chunkConvert([findFilter], output, quality).then((result) => {
-        success(result)
-      })
-    }
-  })
-}
-
-const convertByDirectory = function(dirInput, dirOutput, folders) {
-  folders = folders || []
-  const subfolder = folders?.length > 0 ? (path.sep + folders.join(path.sep)) : ''
-  const input = fs.readdirSync(path.normalize(dirInput + subfolder))
-
-
-
-  input.forEach(async function(file) {
-    const source = path.normalize(dirInput + subfolder)
-
-    if (fs.statSync(source).isDirectory()) {
-      const dest = dirOutput + subfolder
-
-      try {
-        await convert(source, dest, quality, chunks)
-        convertByDirectory(dirInput, dirOutput, [...folders, file])
-      } catch (e) {
-        console.error("ERROR", source, e)
+      const filesChunk = sliceIntoChunks(files, chunks);
+      for (let i = 0; i < filesChunk.length; i++) {
+        await chunkConvert(filesChunk[i], outputDir, quality);
       }
+    } else {
+      await chunkConvert(files, outputDir, quality);
     }
-  })
-}
+  });
+};
 
 try {
-  convertByDirectory(dirInput, dirOutput)
+  convertDirectory(dirInput, dirOutput, quality, chunks);
 } catch(e) {
-  console.log(e)
-  process.exit(-1)
+  console.log(e);
+  process.exit(-1);
 }
