@@ -85,38 +85,35 @@ rl.question('Choose quality (20-100): ', (inputQuality) => {
 const sliceIntoChunks = function(arr, chunkSize) {
   const res = [];
   for (let i = 0; i < arr.length; i += chunkSize) {
-      const chunk = arr.slice(i, i + chunkSize);
-      res.push(chunk);
+    const chunk = arr.slice(i, i + chunkSize);
+    res.push(chunk);
   }
   return res;
 };
 
-const chunkConvert = function(files, output, quality) {
-  return new Promise((chunkSuccess, fail) => {
-    console.log(`Converting chunk with ${files.length} files...`);
-    imagemin(files, {
-      destination: output,
-      plugins: [
-        imageminWebp({
-          quality
-        })
-      ],
-    })
-    .then((result) => {
+const chunkConvert = async function(files, output, quality) {
+  console.log(`Converting chunk with ${files.length} files...`);
+  for (let i = 0; i < files.length; i++) {
+    try {
+      console.log(`Converting file ${i + 1}...`);
+      const result = await imagemin([files[i]], {
+        destination: output,
+        plugins: [
+          imageminWebp({
+            quality
+          })
+        ]
+      });
       if (result?.length > 0) {
-        console.log(` => Converted ${result?.length} files`)
+        console.log(` => Converted ${files[i]}`);
       } else {
-        console.log(` => No files are converted`)
+        console.log(` => No files are converted for ${files[i]}`);
       }
-      console.log("---------------------------------\n")
-
-      chunkSuccess(result);
-    })
-    .catch((e) => {
-      console.error("Error during conversion:", e);
-      chunkSuccess([]);
-    });
-  });
+    } catch (e) {
+      console.error(`Error during conversion of ${files[i]}:`, e);
+    }
+  }
+  console.log("---------------------------------\n");
 };
 
 const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
