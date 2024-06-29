@@ -7,6 +7,7 @@ import imagemin from 'imagemin';
 import imageminWebp from 'imagemin-webp';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
+import readline from 'readline';
 
 const pipelineAsync = promisify(pipeline);
 
@@ -25,11 +26,6 @@ const argv = yargs(hideBin(process.argv))
     alias: 'o',
     description: 'Location of the destination (WebP) images',
     type: 'string'
-  })
-  .option('quality', {
-    alias: 'q',
-    description: 'Percentage of output quality between 0% (Worst) and 100% (Best)',
-    type: 'number'
   })
   .option('chunks', {
     alias: 'c',
@@ -58,15 +54,6 @@ if (argv.output) {
   }
 }
 
-if (argv.quality) {
-  if (argv.quality >= 0 && argv.quality <= 100) {
-    quality = Number(argv.quality);
-  } else {
-    console.error("Quality must be between 0 and 100!");
-    process.exit(-1);
-  }
-}
-
 if (argv.chunks) {
   if (argv.chunks >= 1) {
     chunks = Number(argv.chunks);
@@ -75,6 +62,25 @@ if (argv.chunks) {
     process.exit(-1);
   }
 }
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+rl.question('Choose quality (20-100): ', (inputQuality) => {
+  const qualityValue = Number(inputQuality);
+
+  if (isNaN(qualityValue) || qualityValue < 20 || qualityValue > 100) {
+    console.error("Quality must be a number between 20 and 100!");
+    rl.close();
+    process.exit(-1);
+  } else {
+    quality = qualityValue;
+    rl.close();
+    startConversion();
+  }
+});
 
 const sliceIntoChunks = function(arr, chunkSize) {
   const res = [];
@@ -113,16 +119,6 @@ const chunkConvert = function(files, output, quality) {
   });
 };
 
-const convertFile = async (inputFile, outputFile, quality) => {
-  const transformer = imageminWebp({ quality }).default();
-  
-  await pipelineAsync(
-    fs.createReadStream(inputFile),
-    transformer,
-    fs.createWriteStream(outputFile)
-  );
-};
-
 const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
   const findFilter = `${inputDir}/*.{jpg,jpeg,png}`;
   glob(findFilter, {}, async (err, files) => {
@@ -142,9 +138,11 @@ const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
   });
 };
 
-try {
-  convertDirectory(dirInput, dirOutput, quality, chunks);
-} catch(e) {
-  console.log(e);
-  process.exit(-1);
-}
+const startConversion = () => {
+  try {
+    convertDirectory(dirInput, dirOutput, quality, chunks);
+  } catch(e) {
+    console.log(e);
+    process.exit(-1);
+  }
+};
