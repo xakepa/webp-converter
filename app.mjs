@@ -5,7 +5,11 @@ import { hideBin } from 'yargs/helpers';
 import glob from 'glob';
 import imagemin from 'imagemin';
 import imageminWebp from 'imagemin-webp';
+import { pipeline } from 'stream';
+import { promisify } from 'util';
 import readline from 'readline';
+
+const pipelineAsync = promisify(pipeline);
 
 let dirInput = path.resolve(process.cwd()) + path.sep + 'input';
 let dirOutput = path.resolve(process.cwd()) + path.sep + 'output';
@@ -36,7 +40,7 @@ if (argv.input) {
   if (fs.existsSync(argv.input) && fs.lstatSync(argv.input).isDirectory()) {
     dirInput = argv.input;
   } else {
-    console.error("Invalid inbox folder!");
+    console.error("Input folder is invalid!");
     process.exit(-1);
   }
 }
@@ -45,7 +49,7 @@ if (argv.output) {
   if (fs.existsSync(argv.output) && fs.lstatSync(argv.output).isDirectory()) {
     dirOutput = argv.output;
   } else {
-    console.error("Invalid output folder");
+    console.error("Output folder is invalid");
     process.exit(-1);
   }
 }
@@ -65,7 +69,7 @@ const rl = readline.createInterface({
 });
 
 const promptQuality = () => {
-  rl.question('Select quality percentage (20-100): ', (inputQuality) => {
+  rl.question('Choose quality percentage (20-100): ', (inputQuality) => {
     let qualityValue = Number(inputQuality);
 
     if (isNaN(qualityValue) || qualityValue < 20 || qualityValue > 100) {
@@ -105,12 +109,12 @@ const chunkConvert = async function(files, output, quality) {
       });
       if (result?.length > 0) {
         const currentFile = path.basename(files[i]);
-        console.log(` => ${currentFile} \x1b[32mconvention successful!\x1b[0m`);
+        console.log(` => ${currentFile} \x1b[32msuccessfully converted!\x1b[0m`);
       } else {
-        console.log(` => \x1b[31mThe files are not converted ${files[i]}\x1b[0m`);
+        console.log(` => Files not converted ${files[i]}`);
       }
     } catch (e) {
-      console.error(`Грешка по време на конвентиране на ${files[i]}:`, e);
+      console.error(`Error during conversion of ${files[i]}:`, e);
     }
   }
   console.log("---------------------------------\n");
@@ -120,16 +124,16 @@ const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
   const findFilter = `${inputDir}/*.{jpg,jpeg,png,JPG,JPEG,PNG}`;
   glob(findFilter, {}, async (err, files) => {
     if (err) {
-      console.error("Error reading the files:", err);
+      console.error("Error reading files:", err);
       return;
     }
 
     if (!files.length) {
-      console.log(`\x1b[31mNo files with extension .jpg, .jpeg, or .png found in folder ${inputDir}\x1b[0m`);
+      console.log(`\x1b[31mNo files found with extension .jpg, .jpeg, or .png in folder ${inputDir}\x1b[0m`);
       return;
     }
   
-    console.log(`\x1b[32mFound ${files.length} files to convert:\x1b[0m`);
+    console.log(`\x1b[32mFound ${files.length} files for conversion:\x1b[0m`);
 
     if (chunks && chunks > 0) {
       const filesChunk = sliceIntoChunks(files, chunks);
