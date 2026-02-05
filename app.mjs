@@ -3,18 +3,17 @@ import fs from 'fs';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import glob from 'glob';
-import imagemin from 'imagemin';
-import imageminWebp from 'imagemin-webp';
-import { pipeline } from 'stream';
+import sharp from 'sharp';
 import { promisify } from 'util';
 import readline from 'readline';
 
-const pipelineAsync = promisify(pipeline);
+const globAsync = promisify(glob);
 
 let dirInput = path.resolve(process.cwd()) + path.sep + 'input';
 let dirOutput = path.resolve(process.cwd()) + path.sep + 'output';
 let quality = 100;
 let chunks = false;
+let resizeWidth;
 
 const argv = yargs(hideBin(process.argv))
   .option('input', {
@@ -26,6 +25,11 @@ const argv = yargs(hideBin(process.argv))
     alias: 'o',
     description: 'Location of the destination (WebP) images',
     type: 'string'
+  })
+  .option('width', {
+    alias: 'w',
+    description: 'Resize output width (keeps aspect ratio)',
+    type: 'number'
   })
   .option('chunks', {
     alias: 'c',
@@ -63,10 +67,41 @@ if (argv.chunks) {
   }
 }
 
+if (argv.width !== undefined) {
+  const widthValue = Number(argv.width);
+  if (isNaN(widthValue) || widthValue < 1) {
+    console.error("Width must be a positive number!");
+    process.exit(-1);
+  }
+  resizeWidth = Math.floor(widthValue);
+}
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
 });
+
+const promptWidth = () => {
+  rl.question('Enter target width in px (press Enter to keep original): ', (inputWidth) => {
+    const trimmed = inputWidth.trim();
+    if (trimmed === '') {
+      rl.close();
+      startConversion();
+      return;
+    }
+
+    const widthValue = Number(trimmed);
+    if (isNaN(widthValue) || widthValue < 1) {
+      console.error("Width must be a positive number!");
+      promptWidth();
+      return;
+    }
+
+    resizeWidth = Math.floor(widthValue);
+    rl.close();
+    startConversion();
+  });
+};
 
 const promptQuality = () => {
   rl.question('Choose quality percentage (20-100): ', (inputQuality) => {
@@ -77,8 +112,12 @@ const promptQuality = () => {
       promptQuality();
     } else {
       quality = qualityValue;
-      rl.close();
-      startConversion();
+      if (resizeWidth === undefined) {
+        promptWidth();
+      } else {
+        rl.close();
+        startConversion();
+      }
     }
   });
 };
@@ -94,61 +133,83 @@ const sliceIntoChunks = function(arr, chunkSize) {
   return res;
 };
 
-const chunkConvert = async function(files, output, quality) {
-  console.log(`Converting chunk with ${files.length} files...`);
-  for (let i = 0; i < files.length; i++) {
-    try {
-      console.log(`Converting file ${i + 1}...`);
-      const result = await imagemin([files[i]], {
-        destination: output,
-        plugins: [
-          imageminWebp({
-            quality
-          })
-        ]
-      });
-      if (result?.length > 0) {
-        const currentFile = path.basename(files[i]);
-        console.log(` => ${currentFile} \x1b[32msuccessfully converted!\x1b[0m`);
-      } else {
-        console.log(` => Files not converted ${files[i]}`);
-      }
-    } catch (e) {
-      console.error(`Error during conversion of ${files[i]}:`, e);
-    }
+const ensureOutputDir = (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
   }
+};
+
+const convertFile = async (filePath, outputDir, qualityValue, widthValue) => {
+  const { name } = path.parse(filePath);
+  const destination = path.join(outputDir, `${name}.webp`);
+
+  let image = sharp(filePath);
+
+  if (widthValue) {
+    image = image.resize({
+      width: widthValue,
+      withoutEnlargement: true
+    });
+  }
+
+  await image.webp({ 
+    quality: qualityValue,
+    effort: 6,
+    smartSubsample: true
+
+   }).toFile(destination);
+  return destination;
+};
+
+const chunkConvert = async function(files, output, qualityValue, widthValue) {
+  console.log(`Converting chunk with ${files.length} files...`);
+
+  const promises = files.map(async (file, i) => {
+    const currentFile = path.basename(file);
+    try {
+      await convertFile(file, output, qualityValue, widthValue);
+      const resizeInfo = widthValue ? ` at width ${widthValue}px` : '';
+      console.log(` => ${currentFile}${resizeInfo} \x1b[32msuccessfully converted!\x1b[0m`);
+    } catch (e) {
+      console.error(`Error during conversion of ${file}:`, e);
+    }
+  });
+
+  await Promise.all(promises);
+  
   console.log("---------------------------------\n");
 };
 
-const convertDirectory = async (inputDir, outputDir, quality, chunks) => {
+const convertDirectory = async (inputDir, outputDir, qualityValue, chunkSize, widthValue) => {
   const findFilter = `${inputDir}/*.{jpg,jpeg,png,JPG,JPEG,PNG}`;
-  glob(findFilter, {}, async (err, files) => {
-    if (err) {
-      console.error("Error reading files:", err);
-      return;
-    }
+
+  try {
+    const files = await globAsync(findFilter);
 
     if (!files.length) {
       console.log(`\x1b[31mNo files found with extension .jpg, .jpeg, or .png in folder ${inputDir}\x1b[0m`);
       return;
     }
-  
+
+    ensureOutputDir(outputDir);
     console.log(`\x1b[32mFound ${files.length} files for conversion:\x1b[0m`);
 
-    if (chunks && chunks > 0) {
-      const filesChunk = sliceIntoChunks(files, chunks);
+    if (chunkSize && chunkSize > 0) {
+      const filesChunk = sliceIntoChunks(files, chunkSize);
       for (let i = 0; i < filesChunk.length; i++) {
-        await chunkConvert(filesChunk[i], outputDir, quality);
+        await chunkConvert(filesChunk[i], outputDir, qualityValue, widthValue);
       }
     } else {
-      await chunkConvert(files, outputDir, quality);
+      await chunkConvert(files, outputDir, qualityValue, widthValue);
     }
-  });
+  } catch (err) {
+    console.error("Error reading files:", err);
+  }
 };
 
-const startConversion = () => {
+const startConversion = async () => {
   try {
-    convertDirectory(dirInput, dirOutput, quality, chunks);
+    await convertDirectory(dirInput, dirOutput, quality, chunks, resizeWidth);
   } catch(e) {
     console.log(e);
     process.exit(-1);
